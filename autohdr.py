@@ -48,10 +48,10 @@ def playing_hdr():
     gamma = vp.get("gamma") or vp.get("transfer")
     return gamma in ("pq", "hlg") or "dolby" in str(vp.get("colormatrix", "")).lower()
 
-def hdr(cmd):
-    """Run the HDR switch; returns the display IDs it handled."""
-    out = subprocess.run([HDR, cmd], capture_output=True, text=True).stdout
-    return [line.split()[0] for line in out.splitlines() if line.strip()]
+def hdr(cmd, ids=()):
+    """Run the HDR switch. Returns {displayID: "on"|"off"} for the displays it handled."""
+    out = subprocess.run([HDR, cmd, *ids], capture_output=True, text=True).stdout
+    return {p[0]: p[1] for p in (line.split() for line in out.splitlines()) if len(p) >= 2}
 
 def bd_brightness(display_id, value=None):
     if not (MAX_BRIGHTNESS and os.path.exists(BD)):
@@ -64,27 +64,65 @@ def bd_brightness(display_id, value=None):
             return None
     subprocess.run([BD, "set", f"-displayID={display_id}", f"-brightness={value}"], capture_output=True)
 
+STATE = os.path.expanduser("~/Library/Application Support/iina-auto-hdr/state.json")
+
+def save_state(state):
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    with open(STATE, "w") as f:
+        json.dump(state, f)
+
+def load_state():
+    try:
+        with open(STATE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+def turn_on():
+    before = hdr("status")
+    switched = [i for i, st in before.items() if st == "off"]  # leave displays the user already had in HDR alone
+    brightness = {i: bd_brightness(i) for i in before}  # read before HDR changes it
+    state = {"switched": switched, "brightness": brightness}
+    save_state(state)  # so a restart mid-movie can still put things back
+    if switched:
+        hdr("on", switched)
+    for i, v in brightness.items():
+        if v is not None:
+            bd_brightness(i, 1)
+    log("HDR video: HDR on for displays", switched, "brightness was", brightness)
+    return state
+
+def restore(state):
+    if state.get("switched"):
+        hdr("off", state["switched"])
+    for i, v in state.get("brightness", {}).items():
+        if v is not None:
+            bd_brightness(i, v)
+    try:
+        os.remove(STATE)
+    except OSError:
+        pass
+    log("back to normal")
+
 def main():
     if not os.path.exists(HDR):
-        log("missing hdr tool next to autohdr.py, run install.sh"); sys.exit(1)
+        log("missing hdr tool next to autohdr.py, run install.sh")
+        time.sleep(60)  # launchd restarts us; don't spam the log
+        sys.exit(1)
     log("started; brightness", "via BetterDisplay" if MAX_BRIGHTNESS and os.path.exists(BD) else "unchanged")
-    active, saved = False, {}
+    state = load_state()  # left over if we were stopped during an HDR video
+    if state is not None and not playing_hdr():
+        restore(state)
+        state = None
+    misses = 0
     while True:
         want = playing_hdr()
-        if want and not active:
-            ids = hdr("on")
-            saved = {i: bd_brightness(i) for i in ids}
-            for i in ids:
-                bd_brightness(i, 1)
-            active = True
-            log("HDR video: HDR on for displays", ids, "brightness was", saved)
-        elif not want and active:
-            hdr("off")
-            for i, v in saved.items():
-                if v is not None:
-                    bd_brightness(i, v)
-            active = False
-            log("back to normal")
+        misses = 0 if want else misses + 1
+        if want and state is None:
+            state = turn_on()
+        elif misses >= 2 and state is not None:  # 2 checks in a row: one odd answer from IINA shouldn't end HDR mid-movie
+            restore(state)
+            state = None
         time.sleep(POLL)
 
 if __name__ == "__main__":

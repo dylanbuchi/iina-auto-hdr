@@ -1,5 +1,5 @@
 // hdr: switch macOS HDR mode on external displays that support it.
-// Usage: hdr [on|off|toggle|status]
+// Usage: hdr [on|off|toggle|status] [displayID ...]   (no IDs = all HDR-capable external displays)
 // Prints one line per HDR-capable external display: "<displayID> <on|off> <name>"
 // Uses private SkyLight functions (the same switch as System Settings > Displays > High Dynamic Range).
 import CoreGraphics
@@ -24,10 +24,11 @@ func name(_ id: CGDirectDisplayID) -> String {
 }
 
 let cmd = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "status"
-guard ["on", "off", "toggle", "status"].contains(cmd) else { print("usage: hdr [on|off|toggle|status]"); exit(2) }
+guard ["on", "off", "toggle", "status"].contains(cmd) else { print("usage: hdr [on|off|toggle|status] [displayID ...]"); exit(2) }
+let only = Set(CommandLine.arguments.dropFirst(2).compactMap { UInt32($0) })
 var ids = [CGDirectDisplayID](repeating: 0, count: 16); var n: UInt32 = 0
 CGGetOnlineDisplayList(16, &ids, &n)
-for id in ids.prefix(Int(n)) where CGDisplayIsBuiltin(id) == 0 && supports(id) {
+for id in ids.prefix(Int(n)) where CGDisplayIsBuiltin(id) == 0 && supports(id) && (only.isEmpty || only.contains(id)) {
   if cmd != "status" {
     let want = cmd == "on" ? true : cmd == "off" ? false : !isOn(id)
     if want != isOn(id) { _ = setHDR(id, want) }

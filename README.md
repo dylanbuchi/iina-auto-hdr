@@ -5,7 +5,7 @@ Your Mac turns HDR on when an HDR movie plays in [IINA](https://iina.io), and ba
 macOS doesn't switch HDR per video like an Apple TV does. Leave HDR on for an external monitor and the desktop looks washed out; leave it off and HDR movies lose their highlights. iina-auto-hdr watches IINA and flips the switch for you:
 
 - **HDR video starts** (HDR10, HLG or Dolby Vision): HDR turns on for your HDR-capable external display(s), and brightness goes to max if you use [BetterDisplay](https://github.com/waydabber/BetterDisplay).
-- **Video stops or IINA closes:** HDR turns off and brightness goes back to what it was.
+- **Video stops or IINA closes:** HDR turns off and brightness goes back to what it was. A display you already had in HDR stays in HDR.
 - **SDR video:** nothing changes.
 
 It checks the video itself (its transfer curve), not the file name.
@@ -33,7 +33,9 @@ The installer:
 2. builds `hdr` and copies everything to `~/Library/Application Support/iina-auto-hdr`;
 3. starts the watcher now and at every login. Log: `~/Library/Logs/iina-auto-hdr.log`.
 
-You can also switch HDR by hand: `~/Library/Application\ Support/iina-auto-hdr/hdr on` (or `off`, `toggle`, `status`).
+Your IINA settings are backed up to `~/Library/Application Support/iina-auto-hdr/iina-prefs-backup.plist` before the change.
+
+You can also switch HDR by hand: `~/Library/Application\ Support/iina-auto-hdr/hdr on` (or `off`, `toggle`, `status`, optionally followed by display IDs).
 
 ## Uninstall
 
@@ -42,6 +44,8 @@ Quit IINA, then:
 ```bash
 ./uninstall.sh
 ```
+
+This removes the watcher and the IINA option. IINA's "Advanced" settings tab stays enabled; turn it off in IINA if you like.
 
 ## Settings
 
@@ -55,10 +59,13 @@ Set these in the LaunchAgent (`~/Library/LaunchAgents/io.github.dylanbuchi.iina-
 
 ## Limits
 
+- HDR switches within about 5 to 10 seconds after a video starts or stops (it checks every 5 s).
 - IINA only for now. Other players (Infuse, VLC, browsers) aren't detected.
 - The HDR switch uses a private macOS function (the same one System Settings uses). A future macOS update could break it.
 - Some monitors change their own picture settings (sharpness, picture mode) when HDR turns on or off. That happens inside the monitor and iina-auto-hdr can't undo it.
 - The built-in MacBook screen is left alone; it handles HDR by itself.
+- If you unplug a monitor during an HDR movie, macOS may remember HDR on for it. Turn it off in System Settings > Displays.
+- The control socket is `/tmp/mpvsocket`, fine for a Mac with one user account. On a shared Mac, set `AUTOHDR_SOCKET` and IINA's `input-ipc-server` to a path in your home folder.
 
 ## Support
 

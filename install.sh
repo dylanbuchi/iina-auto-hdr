@@ -12,7 +12,7 @@ command -v swiftc >/dev/null || { echo "Needs Xcode Command Line Tools: run  xco
 
 /usr/bin/python3 iina_config.py add
 mkdir -p "$DEST" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs"
-swiftc -O hdr.swift -o "$DEST/hdr" 2>/dev/null
+swiftc -O hdr.swift -o "$DEST/hdr"
 cp autohdr.py iina_config.py "$DEST/"
 
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
