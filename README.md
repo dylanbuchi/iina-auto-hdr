@@ -54,12 +54,12 @@ Set these in the LaunchAgent (`~/Library/LaunchAgents/io.github.dylanbuchi.iina-
 | Variable | Default | What it does |
 |---|---|---|
 | `AUTOHDR_MAX_BRIGHTNESS` | `1` | `0` leaves brightness alone |
-| `AUTOHDR_POLL` | `5` | seconds between checks |
+| `AUTOHDR_STOP_DELAY` | `2` | seconds without an HDR video before HDR turns off |
 | `AUTOHDR_SOCKET` | `/tmp/mpvsocket` | IINA's mpv socket |
 
 ## Limits
 
-- HDR switches within about 5 to 10 seconds after a video starts or stops (it checks every 5 s).
+- IINA tells the watcher the moment a video starts or stops. Switching still takes about 2 to 3 seconds, because macOS and the monitor need that long to change mode (the screen blinks once).
 - IINA only for now. Other players (Infuse, VLC, browsers) aren't detected.
 - The HDR switch uses a private macOS function (the same one System Settings uses). A future macOS update could break it.
 - Some monitors change their own picture settings (sharpness, picture mode) when HDR turns on or off. That happens inside the monitor and iina-auto-hdr can't undo it.

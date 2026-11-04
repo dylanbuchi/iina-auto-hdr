@@ -9,44 +9,65 @@ import json, os, socket, subprocess, sys, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 HDR = os.path.join(HERE, "hdr")
 SOCK = os.environ.get("AUTOHDR_SOCKET", "/tmp/mpvsocket")
-POLL = float(os.environ.get("AUTOHDR_POLL", "5"))
+STOP_DELAY = float(os.environ.get("AUTOHDR_STOP_DELAY", "2"))  # seconds without HDR video before restoring
 MAX_BRIGHTNESS = os.environ.get("AUTOHDR_MAX_BRIGHTNESS", "1") == "1"
 BD = "/Applications/BetterDisplay.app/Contents/MacOS/BetterDisplay"
 
 def log(*a):
     print(time.strftime("%Y-%m-%d %H:%M:%S"), *a, flush=True)
 
-def mpv_get(prop):
-    """Ask IINA (mpv) for one property. None if nothing is playing or IINA isn't open."""
-    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    s.settimeout(2)
-    try:
-        s.connect(SOCK)
-        s.sendall((json.dumps({"command": ["get_property", prop], "request_id": 7}) + "\n").encode())
-        buf = b""
-        while True:
-            chunk = s.recv(65536)
-            if not chunk:
-                return None
-            buf += chunk
-            for line in buf.split(b"\n"):
-                try:
-                    m = json.loads(line)
-                except ValueError:
-                    continue
-                if m.get("request_id") == 7:
-                    return m.get("data")
-    except OSError:
-        return None
-    finally:
-        s.close()
-
-def playing_hdr():
-    vp = mpv_get("video-params")
+def is_hdr(vp):
     if not vp:
         return False
     gamma = vp.get("gamma") or vp.get("transfer")
     return gamma in ("pq", "hlg") or "dolby" in str(vp.get("colormatrix", "")).lower()
+
+class Iina:
+    """Stays connected to IINA's mpv socket; IINA tells us right away when the video changes."""
+    def __init__(self):
+        self.sock, self.buf, self.hdr = None, b"", False
+
+    def _connect(self):
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            s.connect(SOCK)
+            s.sendall(b'{"command": ["observe_property", 1, "video-params"]}\n')
+        except OSError:
+            s.close()
+            return False
+        self.sock, self.buf = s, b""
+        return True
+
+    def _drop(self):
+        if self.sock:
+            self.sock.close()
+        self.sock, self.hdr = None, False
+
+    def wait(self, timeout=1.0):
+        """Wait up to `timeout` s for news from IINA. Returns True while an HDR video is loaded."""
+        if self.sock is None and not self._connect():
+            time.sleep(timeout)  # IINA not open yet
+            return False
+        self.sock.settimeout(timeout)
+        try:
+            chunk = self.sock.recv(65536)
+        except socket.timeout:
+            return self.hdr
+        except OSError:
+            chunk = b""
+        if not chunk:  # IINA quit
+            self._drop()
+            return False
+        self.buf += chunk
+        *lines, self.buf = self.buf.split(b"\n")
+        for line in lines:
+            try:
+                m = json.loads(line)
+            except ValueError:
+                continue
+            if m.get("event") == "property-change" and m.get("name") == "video-params":
+                self.hdr = is_hdr(m.get("data"))
+        return self.hdr
 
 def hdr(cmd, ids=()):
     """Run the HDR switch. Returns {displayID: "on"|"off"} for the displays it handled."""
@@ -111,19 +132,16 @@ def main():
         sys.exit(1)
     log("started; brightness", "via BetterDisplay" if MAX_BRIGHTNESS and os.path.exists(BD) else "unchanged")
     state = load_state()  # left over if we were stopped during an HDR video
-    if state is not None and not playing_hdr():
-        restore(state)
-        state = None
-    misses = 0
+    iina, last_hdr = Iina(), time.monotonic()
     while True:
-        want = playing_hdr()
-        misses = 0 if want else misses + 1
-        if want and state is None:
-            state = turn_on()
-        elif misses >= 2 and state is not None:  # 2 checks in a row: one odd answer from IINA shouldn't end HDR mid-movie
+        if iina.wait():
+            last_hdr = time.monotonic()
+            if state is None:
+                state = turn_on()
+        elif state is not None and time.monotonic() - last_hdr >= STOP_DELAY:
+            # short wait so a quick glitch (or the switch to the next episode) doesn't end HDR
             restore(state)
             state = None
-        time.sleep(POLL)
 
 if __name__ == "__main__":
     main()
